@@ -1,0 +1,16 @@
+decode_dbt:
+  target: dev
+  outputs:
+    dev:
+      type: duckdb
+      path: "md:decode_dbt"  # MotherDuck connection string
+      schema: "{{ user_schema_name }}"  # Dynamic per user
+      threads: 4
+      motherduck_token: "{{ env_var('MOTHERDUCK_TOKEN') }}"
+      
+    prod:
+      type: duckdb
+      path: "md:decode_dbt"
+      schema: "{{ user_schema_name }}"
+      threads: 8
+      motherduck_token: "{{ env_var('MOTHERDUCK_TOKEN') }}"

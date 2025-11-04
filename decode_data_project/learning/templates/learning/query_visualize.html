@@ -1,0 +1,205 @@
+{% extends "base.html" %}
+
+{% block title %}Query & Visualize - {{ lesson.title }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row mb-3">
+        <div class="col">
+            <nav aria-label="breadcrumb">
+                <ol class="breadcrumb">
+                    <li class="breadcrumb-item"><a href="{% url 'dashboard' %}">Dashboard</a></li>
+                    <li class="breadcrumb-item"><a href="{% url 'lesson_detail' lesson.id %}">{{ lesson.title }}</a></li>
+                    <li class="breadcrumb-item active">Query & Visualize</li>
+                </ol>
+            </nav>
+            <h2 class="text-primary">🧪 Data Exploration & Analysis</h2>
+        </div>
+    </div>
+    
+    <!-- SQL Editor -->
+    <div class="row mb-4">
+        <div class="col">
+            <div class="card">
+                <div class="card-header">
+                    <h5>🔍 SQL Query Editor</h5>
+                </div>
+                <div class="card-body">
+                    <form method="post">
+                        {% csrf_token %}
+                        <div class="mb-3">
+                            <label for="id_query" class="form-label">SQL Query</label>
+                            {{ form.query }}
+                        </div>
+                        <button type="submit" class="btn btn-primary">▶️ Execute Query</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Results -->
+    {% if result_data %}
+    <div class="row mb-4">
+        <div class="col">
+            <div class="card">
+                <div class="card-header">
+                    <h5>📊 Query Results</h5>
+                </div>
+                <div class="card-body">
+                    <!-- Stats -->
+                    <div class="row mb-3">
+                        <div class="col-md-4">
+                            <div class="card bg-light">
+                                <div class="card-body text-center">
+                                    <h3>{{ result_data.shape.0 }}</h3>
+                                    <small class="text-muted">Rows</small>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="card bg-light">
+                                <div class="card-body text-center">
+                                    <h3>{{ result_data.shape.1 }}</h3>
+                                    <small class="text-muted">Columns</small>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="card bg-light">
+                                <div class="card-body text-center">
+                                    <h3>{{ result_data.columns|length }}</h3>
+                                    <small class="text-muted">Fields</small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Data Table -->
+                    <div class="table-responsive">
+                        <table class="table table-striped table-hover">
+                            <thead>
+                                <tr>
+                                    {% for col in result_data.columns %}
+                                    <th>{{ col }}</th>
+                                    {% endfor %}
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for row in result_data.data %}
+                                <tr>
+                                    {% for cell in row %}
+                                    <td>{{ cell }}</td>
+                                    {% endfor %}
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Visualization -->
+    <div class="row">
+        <div class="col">
+            <div class="card">
+                <div class="card-header">
+                    <h5>📈 Data Visualization</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row mb-3">
+                        <div class="col-md-4">
+                            <label for="xAxis" class="form-label">X-Axis:</label>
+                            <select class="form-select" id="xAxis">
+                                {% for col in result_data.columns %}
+                                <option value="{{ forloop.counter0 }}">{{ col }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label for="yAxis" class="form-label">Y-Axis:</label>
+                            <select class="form-select" id="yAxis">
+                                {% for col in result_data.columns %}
+                                <option value="{{ forloop.counter0 }}" {% if forloop.counter0 == 1 %}selected{% endif %}>{{ col }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label for="chartType" class="form-label">Chart Type:</label>
+                            <select class="form-select" id="chartType">
+                                <option value="bar">Bar</option>
+                                <option value="line">Line</option>
+                                <option value="pie">Pie</option>
+                            </select>
+                        </div>
+                    </div>
+                    <canvas id="dataChart" style="max-height: 400px;"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+    // Store data for charting
+    const chartData = {
+        columns: {{ result_data.columns|safe }},
+        data: {{ result_data.data|safe }}
+    };
+    
+    let myChart = null;
+    
+    function updateChart() {
+        const xAxisIndex = parseInt(document.getElementById('xAxis').value);
+        const yAxisIndex = parseInt(document.getElementById('yAxis').value);
+        const chartType = document.getElementById('chartType').value;
+        
+        const labels = chartData.data.map(row => row[xAxisIndex]);
+        const values = chartData.data.map(row => row[yAxisIndex]);
+        
+        if (myChart) {
+            myChart.destroy();
+        }
+        
+        const ctx = document.getElementById('dataChart').getContext('2d');
+        myChart = new Chart(ctx, {
+            type: chartType,
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: chartData.columns[yAxisIndex],
+                    data: values,
+                    backgroundColor: chartType === 'pie' ? [
+                        'rgba(59, 130, 246, 0.5)',
+                        'rgba(16, 185, 129, 0.5)',
+                        'rgba(245, 158, 11, 0.5)',
+                        'rgba(239, 68, 68, 0.5)',
+                        'rgba(139, 92, 246, 0.5)',
+                    ] : 'rgba(59, 130, 246, 0.5)',
+                    borderColor: 'rgba(59, 130, 246, 1)',
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: true,
+                scales: chartType !== 'pie' ? {
+                    y: {
+                        beginAtZero: true
+                    }
+                } : {}
+            }
+        });
+    }
+    
+    document.getElementById('xAxis').addEventListener('change', updateChart);
+    document.getElementById('yAxis').addEventListener('change', updateChart);
+    document.getElementById('chartType').addEventListener('change', updateChart);
+    
+    // Initial chart
+    updateChart();
+    </script>
+    {% endif %}
+</div>
+{% endblock %}

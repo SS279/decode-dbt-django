@@ -1,0 +1,216 @@
+{% extends "base.html" %}
+
+{% block title %}Model Builder - {{ lesson.title }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row mb-3">
+        <div class="col">
+            <nav aria-label="breadcrumb">
+                <ol class="breadcrumb">
+                    <li class="breadcrumb-item"><a href="{% url 'dashboard' %}">Dashboard</a></li>
+                    <li class="breadcrumb-item"><a href="{% url 'lesson_detail' lesson.id %}">{{ lesson.title }}</a></li>
+                    <li class="breadcrumb-item active">Model Builder</li>
+                </ol>
+            </nav>
+            <h2 class="text-primary">🧱 Build & Execute Models</h2>
+        </div>
+    </div>
+    
+    <!-- Initialize Workspace -->
+    {% if not workspace_initialized %}
+    <div class="row mb-4">
+        <div class="col">
+            <div class="alert alert-info">
+                <h5>🚀 Setup Your Learning Environment</h5>
+                <p>Initialize your personal dbt workspace to get started.</p>
+                <form method="post">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="initialize">
+                    <button type="submit" class="btn btn-primary">🎯 Initialize Sandbox</button>
+                </form>
+            </div>
+        </div>
+    </div>
+    {% else %}
+    
+    <!-- Model Editor -->
+    <div class="row mb-4">
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">
+                    <h5>✏️ Model Editor</h5>
+                </div>
+                <div class="card-body">
+                    <form method="post" id="modelEditorForm">
+                        {% csrf_token %}
+                        <input type="hidden" name="action" value="save_model">
+                        
+                        <div class="mb-3">
+                            <label for="modelSelect" class="form-label">Select Model:</label>
+                            <select class="form-select" id="modelSelect" name="model_name">
+                                <option value="">-- Select a model --</option>
+                                {% for model in models %}
+                                <option value="{{ model }}">{{ model }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="modelSQL" class="form-label">Model SQL:</label>
+                            <textarea class="form-control font-monospace" 
+                                      id="modelSQL" 
+                                      name="model_sql" 
+                                      rows="15"
+                                      style="font-size: 14px; background-color: #f8f9fa;"></textarea>
+                        </div>
+                        
+                        <button type="submit" class="btn btn-success">💾 Save Model</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Model Execution -->
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">
+                    <h5>🏃 Execute Pipeline</h5>
+                </div>
+                <div class="card-body">
+                    <form method="post">
+                        {% csrf_token %}
+                        <input type="hidden" name="action" value="execute_models">
+                        
+                        <div class="mb-3">
+                            <label class="form-label">Select Models to Execute:</label>
+                            {% for model in models %}
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" 
+                                       name="selected_models" value="{{ model }}" 
+                                       id="model_{{ forloop.counter }}">
+                                <label class="form-check-label" for="model_{{ forloop.counter }}">
+                                    {{ model }}
+                                </label>
+                            </div>
+                            {% endfor %}
+                        </div>
+                        
+                        <div class="mb-3">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" 
+                                       name="include_children" id="includeChildren">
+                                <label class="form-check-label" for="includeChildren">
+                                    Include child models (+)
+                                </label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" 
+                                       name="full_refresh" id="fullRefresh">
+                                <label class="form-check-label" for="fullRefresh">
+                                    Full refresh
+                                </label>
+                            </div>
+                        </div>
+                        
+                        <button type="submit" class="btn btn-primary w-100">▶️ Execute Pipeline</button>
+                    </form>
+                </div>
+            </div>
+            
+            <!-- Validation -->
+            <div class="card mt-3">
+                <div class="card-header">
+                    <h5>✅ Validate Completion</h5>
+                </div>
+                <div class="card-body">
+                    <button type="button" class="btn btn-success w-100" onclick="validateLesson()">
+                        🏆 Validate Lesson
+                    </button>
+                    <div id="validationResult" class="mt-3"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+</div>
+
+<script>
+// Load model content when selected
+document.getElementById('modelSelect')?.addEventListener('change', function() {
+    const modelName = this.value;
+    if (!modelName) {
+        document.getElementById('modelSQL').value = '';
+        return;
+    }
+    
+    fetch('{% url "api_get_model" %}', {
+        method: 'POST',
+        headers: {
+            'X-CSRFToken': '{{ csrf_token }}',
+            'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: `model_name=${modelName}&lesson_id={{ lesson.id }}`
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            document.getElementById('modelSQL').value = data.sql;
+        }
+    })
+    .catch(error => {
+        console.error('Error loading model:', error);
+        alert('Failed to load model. Please try again.');
+    });
+});
+
+// Validate lesson
+function validateLesson() {
+    const button = event.target;
+    button.disabled = true;
+    button.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Validating...';
+    
+    fetch('{% url "api_validate" %}', {
+        method: 'POST',
+        headers: {
+            'X-CSRFToken': '{{ csrf_token }}',
+            'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: 'lesson_id={{ lesson.id }}'
+    })
+    .then(response => response.json())
+    .then(data => {
+        const resultDiv = document.getElementById('validationResult');
+        if (data.success) {
+            resultDiv.innerHTML = `
+                <div class="alert alert-success">
+                    <h5>🎉 Lesson Completed!</h5>
+                    <p>Models Built: ${data.models_built} / ${data.expected_min}</p>
+                </div>
+            `;
+        } else {
+            resultDiv.innerHTML = `
+                <div class="alert alert-danger">
+                    <h5>❌ Validation Failed</h5>
+                    <p>${data.message || data.error}</p>
+                </div>
+            `;
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        const resultDiv = document.getElementById('validationResult');
+        resultDiv.innerHTML = `
+            <div class="alert alert-danger">
+                <h5>❌ Error</h5>
+                <p>Failed to validate. Please try again.</p>
+            </div>
+        `;
+    })
+    .finally(() => {
+        button.disabled = false;
+        button.innerHTML = '🏆 Validate Lesson';
+    });
+}
+</script>
+{% endblock %}

@@ -1,0 +1,178 @@
+{% extends "base.html" %}
+
+{% block title %}Progress - {{ lesson.title }}{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="row mb-3">
+        <div class="col">
+            <nav aria-label="breadcrumb">
+                <ol class="breadcrumb">
+                    <li class="breadcrumb-item"><a href="{% url 'dashboard' %}">Dashboard</a></li>
+                    <li class="breadcrumb-item"><a href="{% url 'lesson_detail' lesson.id %}">{{ lesson.title }}</a></li>
+                    <li class="breadcrumb-item active">Progress</li>
+                </ol>
+            </nav>
+            <h2 class="text-primary">📈 Your Learning Journey</h2>
+        </div>
+    </div>
+    
+    <!-- Progress Metrics -->
+    <div class="row mb-4">
+        <div class="col-md-3">
+            <div class="card">
+                <div class="card-body text-center">
+                    <h3 class="text-primary">{{ progress.lesson_progress }}%</h3>
+                    <small class="text-muted">Lesson Progress</small>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card">
+                <div class="card-body text-center">
+                    <h3 class="text-success">{{ progress.completed_steps|length }}</h3>
+                    <small class="text-muted">Steps Completed</small>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card">
+                <div class="card-body text-center">
+                    <h3 class="text-info">{{ progress.models_executed|length }}</h3>
+                    <small class="text-muted">Models Executed</small>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card">
+                <div class="card-body text-center">
+                    <h3 class="text-warning">{{ progress.queries_run }}</h3>
+                    <small class="text-muted">Queries Run</small>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Progress Bar -->
+    <div class="row mb-4">
+        <div class="col">
+            <div class="card">
+                <div class="card-header">
+                    <h5>🎯 Lesson Progress</h5>
+                </div>
+                <div class="card-body">
+                    <div class="progress" style="height: 30px;">
+                        <div class="progress-bar bg-success" role="progressbar" 
+                             style="width: {{ progress.lesson_progress }}%"
+                             aria-valuenow="{{ progress.lesson_progress }}" 
+                             aria-valuemin="0" 
+                             aria-valuemax="100">
+                            {{ progress.lesson_progress }}%
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Completed Steps -->
+    {% if progress.completed_steps %}
+    <div class="row mb-4">
+        <div class="col">
+            <div class="card">
+                <div class="card-header">
+                    <h5>✅ Completed Steps</h5>
+                </div>
+                <div class="card-body">
+                    <ul class="list-group">
+                        {% for step in progress.completed_steps %}
+                        <li class="list-group-item">
+                            ✓ {{ step|title|replace:"_":" " }}
+                        </li>
+                        {% endfor %}
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+    
+    <!-- Models Executed -->
+    {% if progress.models_executed %}
+    <div class="row mb-4">
+        <div class="col">
+            <div class="card">
+                <div class="card-header">
+                    <h5>🏗️ Models Executed</h5>
+                </div>
+                <div class="card-body">
+                    <ul class="list-group">
+                        {% for model in progress.models_executed %}
+                        <li class="list-group-item">
+                            ✓ {{ model }}
+                        </li>
+                        {% endfor %}
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+    
+    <!-- All Lessons Overview -->
+    <div class="row">
+        <div class="col">
+            <div class="card">
+                <div class="card-header">
+                    <h5>📚 All Lessons Overview</h5>
+                </div>
+                <div class="card-body">
+                    <canvas id="lessonsChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// Create lessons progress chart
+const ctx = document.getElementById('lessonsChart').getContext('2d');
+
+// Build data for all progress
+const progressData = {{ all_progress|safe }};
+const lessonTitles = {{ lessons|safe }}.map(l => l.title);
+const lessonIds = {{ lessons|safe }}.map(l => l.id);
+
+// Map progress by lesson_id
+const progressMap = {};
+progressData.forEach(p => {
+    progressMap[p.lesson_id] = p.lesson_progress;
+});
+
+// Get progress for each lesson
+const progressValues = lessonIds.map(id => progressMap[id] || 0);
+
+new Chart(ctx, {
+    type: 'bar',
+    data: {
+        labels: lessonTitles,
+        datasets: [{
+            label: 'Progress (%)',
+            data: progressValues,
+            backgroundColor: 'rgba(59, 130, 246, 0.5)',
+            borderColor: 'rgba(59, 130, 246, 1)',
+            borderWidth: 1
+        }]
+    },
+    options: {
+        responsive: true,
+        scales: {
+            y: {
+                beginAtZero: true,
+                max: 100
+            }
+        }
+    }
+});
+</script>
+{% endblock %}

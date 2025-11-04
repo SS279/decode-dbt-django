@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+
+{% block title %}{{ lesson.title }} - Decode Data{% endblock %}
+
+{% block content %}
+<div class="container">
+    <!-- Lesson Header -->
+    <div class="row mb-4">
+        <div class="col">
+            <nav aria-label="breadcrumb">
+                <ol class="breadcrumb">
+                    <li class="breadcrumb-item"><a href="{% url 'dashboard' %}">Dashboard</a></li>
+                    <li class="breadcrumb-item active">{{ lesson.title }}</li>
+                </ol>
+            </nav>
+            <h1 class="text-primary">{{ lesson.title }}</h1>
+            <p class="lead text-muted">{{ lesson.description }}</p>
+        </div>
+    </div>
+    
+    <!-- Progress Bar -->
+    <div class="row mb-4">
+        <div class="col">
+            <div class="card">
+                <div class="card-body">
+                    <h5>Lesson Progress</h5>
+                    <div class="progress mb-2" style="height: 25px;">
+                        <div class="progress-bar bg-success" role="progressbar" 
+                             style="width: {{ progress.lesson_progress }}%"
+                             aria-valuenow="{{ progress.lesson_progress }}" 
+                             aria-valuemin="0" 
+                             aria-valuemax="100">
+                            {{ progress.lesson_progress }}%
+                        </div>
+                    </div>
+                    <div class="row text-center">
+                        <div class="col">
+                            <small class="text-muted">Steps: {{ progress.completed_steps|length }}</small>
+                        </div>
+                        <div class="col">
+                            <small class="text-muted">Models: {{ progress.models_executed|length }}</small>
+                        </div>
+                        <div class="col">
+                            <small class="text-muted">Queries: {{ progress.queries_run }}</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Action Cards -->
+    <div class="row">
+        <div class="col-md-4 mb-3">
+            <div class="card h-100">
+                <div class="card-body text-center">
+                    <h2>🧱</h2>
+                    <h5 class="card-title">Build & Execute</h5>
+                    <p class="card-text">Create and run your dbt models</p>
+                    <a href="{% url 'model_builder' lesson.id %}" class="btn btn-primary">
+                        Start Building
+                    </a>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-md-4 mb-3">
+            <div class="card h-100">
+                <div class="card-body text-center">
+                    <h2>🧪</h2>
+                    <h5 class="card-title">Query & Visualize</h5>
+                    <p class="card-text">Explore your data with SQL</p>
+                    <a href="{% url 'query_visualize' lesson.id %}" class="btn btn-primary">
+                        Query Data
+                    </a>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-md-4 mb-3">
+            <div class="card h-100">
+                <div class="card-body text-center">
+                    <h2>📈</h2>
+                    <h5 class="card-title">Progress Dashboard</h5>
+                    <p class="card-text">Track your learning journey</p>
+                    <a href="{% url 'progress_dashboard' lesson.id %}" class="btn btn-primary">
+                        View Progress
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

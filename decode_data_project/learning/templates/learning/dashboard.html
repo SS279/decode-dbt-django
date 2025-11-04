@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - Decode Data{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="row mb-4">
+        <div class="col">
+            <h1 class="text-primary">📚 Choose Your Learning Path</h1>
+            <p class="text-muted">Select a lesson to begin your dbt journey</p>
+        </div>
+    </div>
+    
+    <!-- Overall Progress -->
+    {% if lessons %}
+    <div class="row mb-4">
+        <div class="col">
+            <h3>📊 Your Learning Progress</h3>
+        </div>
+    </div>
+    <div class="row mb-5">
+        {% for lesson in lessons %}
+        <div class="col-md-4 mb-3">
+            <div class="card">
+                <div class="card-body">
+                    <h5 class="card-title">{{ lesson.title }}</h5>
+                    <div class="progress mb-2" style="height: 20px;">
+                        <div class="progress-bar bg-primary" role="progressbar" 
+                             style="width: {{ lesson.progress }}%"
+                             aria-valuenow="{{ lesson.progress }}" 
+                             aria-valuemin="0" 
+                             aria-valuemax="100">
+                            {{ lesson.progress }}%
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+    
+    <!-- Lesson Cards -->
+    <div class="row">
+        {% for lesson in lessons %}
+        <div class="col-md-4 mb-4">
+            <div class="card h-100 shadow-sm hover-shadow">
+                <div class="card-body">
+                    <h3 class="card-title">{{ lesson.title }}</h3>
+                    <p class="card-text text-muted">{{ lesson.description }}</p>
+                    
+                    {% if lesson.progress > 0 %}
+                    <div class="mb-3">
+                        <small class="text-muted">Progress: {{ lesson.progress }}%</small>
+                        <div class="progress" style="height: 6px;">
+                            <div class="progress-bar bg-success" role="progressbar" 
+                                 style="width: {{ lesson.progress }}%"></div>
+                        </div>
+                    </div>
+                    {% endif %}
+                    
+                    <a href="{% url 'lesson_detail' lesson.id %}" 
+                       class="btn btn-primary w-100">
+                        {% if lesson.progress > 0 %}Continue Learning{% else %}Start Lesson{% endif %}
+                    </a>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endblock %}

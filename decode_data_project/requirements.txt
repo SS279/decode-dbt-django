@@ -1,0 +1,11 @@
+Django>=4.2
+psycopg2-binary>=2.9
+duckdb>=0.9.0
+pandas>=2.0.0
+python-dotenv>=1.0.0
+groq>=0.4.0
+whitenoise>=6.5.0
+gunicorn>=21.0.0
+dj-database-url>=2.1.0
+dbt-core>=1.7.0
+dbt-duckdb>=1.7.0

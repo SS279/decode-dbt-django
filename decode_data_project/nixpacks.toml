@@ -9,8 +9,8 @@ cmds = [
 
 [phases.build]
 cmds = [
-    "python manage.py collectstatic --noinput"
+    "echo 'Build phase complete - collectstatic will run after deployment'"
 ]
 
 [start]
-cmd = "gunicorn decode_data.wsgi:application --bind 0.0.0.0:$PORT --workers 4 --timeout 120"
+cmd = "python manage.py collectstatic --noinput && python manage.py migrate --noinput && gunicorn decode_data.wsgi:application --bind 0.0.0.0:$PORT --workers 4 --timeout 120"

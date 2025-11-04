@@ -93,8 +93,17 @@ USE_TZ = True
 
 STATIC_URL = '/static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
-STATICFILES_DIRS = [BASE_DIR / 'learning' / 'static']
-STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
+
+# Only add to STATICFILES_DIRS if the directory exists
+STATICFILES_DIRS = []
+if (BASE_DIR / 'learning' / 'static').exists():
+    STATICFILES_DIRS = [BASE_DIR / 'learning' / 'static']
+
+# Use Whitenoise for static files, but disable compression during build
+if os.environ.get('RAILWAY_ENVIRONMENT'):
+    STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
+else:
+    STATICFILES_STORAGE = 'django.contrib.staticfiles.storage.StaticFilesStorage'
 
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'

@@ -78,6 +78,20 @@
                     <h5>🏃 Execute Pipeline</h5>
                 </div>
                 <div class="card-body">
+                    <!-- Seed Data Section -->
+                    <div class="mb-4 pb-3 border-bottom">
+                        <h6 class="mb-3">🌱 Load Seed Data</h6>
+                        <p class="small text-muted">Load initial data tables before running models</p>
+                        <form method="post" id="seedForm">
+                            {% csrf_token %}
+                            <input type="hidden" name="action" value="run_seeds">
+                            <button type="submit" class="btn btn-warning w-100">
+                                🌱 Run dbt Seeds
+                            </button>
+                        </form>
+                    </div>
+                    
+                    <!-- Model Execution Section -->
                     <form method="post">
                         {% csrf_token %}
                         <input type="hidden" name="action" value="execute_models">
@@ -214,6 +228,45 @@ function validateLesson() {
     .finally(() => {
         button.disabled = false;
         button.innerHTML = '🏆 Validate Lesson';
+    });
+}
+
+// Test dbt setup
+function testDbt() {
+    const button = event.target;
+    button.disabled = true;
+    button.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Testing...';
+    
+    fetch('{% url "api_test_dbt" %}', {
+        method: 'POST',
+        headers: {
+            'X-CSRFToken': '{{ csrf_token }}',
+            'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: 'lesson_id={{ lesson.id }}'
+    })
+    .then(response => response.json())
+    .then(data => {
+        const resultDiv = document.getElementById('debugResult');
+        let html = '<div class="alert alert-info"><h5>🔍 Debug Information</h5>';
+        html += '<pre style="max-height: 400px; overflow-y: auto; font-size: 12px;">';
+        html += JSON.stringify(data, null, 2);
+        html += '</pre></div>';
+        resultDiv.innerHTML = html;
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        const resultDiv = document.getElementById('debugResult');
+        resultDiv.innerHTML = `
+            <div class="alert alert-danger">
+                <h5>❌ Error</h5>
+                <p>Failed to run debug. Please try again.</p>
+            </div>
+        `;
+    })
+    .finally(() => {
+        button.disabled = false;
+        button.innerHTML = '🔍 Debug dbt Setup';
     });
 }
 </script>

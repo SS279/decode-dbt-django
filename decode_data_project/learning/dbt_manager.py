@@ -15,7 +15,13 @@ class DBTManager:
     
     def _get_workspace_path(self):
         """Get or create workspace path for user"""
-        base_dir = Path(tempfile.gettempdir()) / 'dbt_workspaces'
+        # Use /app/dbt_workspaces for Railway persistence
+        # Falls back to tempdir for local development
+        if os.environ.get('RAILWAY_ENVIRONMENT'):
+            base_dir = Path('/app/dbt_workspaces')
+        else:
+            base_dir = Path(tempfile.gettempdir()) / 'dbt_workspaces'
+        
         workspace = base_dir / f"user_{self.user.id}" / self.lesson['id']
         return workspace
     
@@ -25,16 +31,51 @@ class DBTManager:
     
     def initialize_workspace(self):
         """Initialize DBT workspace"""
+        import logging
+        logger = logging.getLogger(__name__)
+        
         try:
             # Create workspace directory
             self.workspace_path.mkdir(parents=True, exist_ok=True)
+            logger.info(f"Created workspace at: {self.workspace_path}")
             
             # Copy dbt project
             source_dir = Path('dbt_project')
             if not source_dir.exists():
-                return False, 'dbt_project directory not found. Please ensure it exists in the project root.'
+                # Try alternate paths
+                source_dir = Path.cwd() / 'dbt_project'
+                if not source_dir.exists():
+                    source_dir = Path(__file__).parent.parent / 'dbt_project'
+                    if not source_dir.exists():
+                        return False, f'dbt_project directory not found. Searched in: {Path("dbt_project").absolute()}, {Path.cwd() / "dbt_project"}, {Path(__file__).parent.parent / "dbt_project"}'
             
+            logger.info(f"Copying dbt project from: {source_dir}")
             shutil.copytree(source_dir, self.workspace_path, dirs_exist_ok=True)
+            
+            # Create schema in MotherDuck
+            from learning.storage import MotherDuckStorage
+            storage = MotherDuckStorage()
+            
+            try:
+                conn = storage._get_connection()
+                conn.execute(f"USE {storage.share}")
+                conn.execute(f"CREATE SCHEMA IF NOT EXISTS {self.user.schema_name}")
+                logger.info(f"Created schema in MotherDuck: {self.user.schema_name}")
+                
+                # Copy seed data to user schema if it exists
+                try:
+                    conn.execute(f"SET SCHEMA '{self.user.schema_name}'")
+                    
+                    # Check if shared schema has seed data
+                    conn.execute(f"CREATE TABLE IF NOT EXISTS raw_customers AS SELECT * FROM shared.raw_customers WHERE 1=0")
+                    logger.info("Initialized raw tables in user schema")
+                except Exception as e:
+                    logger.warning(f"Could not copy seed data (this is ok if no seed data exists): {e}")
+                
+                conn.close()
+            except Exception as e:
+                logger.error(f"Failed to create schema in MotherDuck: {e}")
+                # Don't fail initialization if schema creation fails
             
             # Create profiles.yml
             profiles_content = f"""
@@ -50,9 +91,11 @@ decode_dbt:
 """
             profiles_path = self.workspace_path / 'profiles.yml'
             profiles_path.write_text(profiles_content)
+            logger.info(f"Created profiles.yml at: {profiles_path}")
             
             return True, 'Workspace initialized successfully'
         except Exception as e:
+            logger.error(f"Error initializing workspace: {str(e)}")
             return False, f'Error initializing workspace: {str(e)}'
     
     def get_model_files(self):
@@ -92,6 +135,9 @@ decode_dbt:
     
     def execute_models(self, model_names, include_children=False, full_refresh=False):
         """Execute DBT models"""
+        import logging
+        logger = logging.getLogger(__name__)
+        
         if not self.is_initialized():
             return False, 'Workspace not initialized'
         
@@ -106,6 +152,10 @@ decode_dbt:
                 if full_refresh:
                     cmd.append('--full-refresh')
                 
+                logger.info(f"Executing dbt command: {' '.join(cmd)}")
+                logger.info(f"Working directory: {self.workspace_path}")
+                logger.info(f"User schema: {self.user.schema_name}")
+                
                 result = subprocess.run(
                     cmd,
                     cwd=self.workspace_path,
@@ -113,6 +163,10 @@ decode_dbt:
                     text=True,
                     env={**os.environ, 'MOTHERDUCK_TOKEN': os.environ.get('MOTHERDUCK_TOKEN', '')}
                 )
+                
+                logger.info(f"dbt stdout: {result.stdout}")
+                logger.error(f"dbt stderr: {result.stderr}")
+                logger.info(f"dbt return code: {result.returncode}")
                 
                 results.append({
                     'model': model_name,
@@ -122,6 +176,7 @@ decode_dbt:
             
             return True, results
         except Exception as e:
+            logger.error(f"Error executing models: {str(e)}")
             return False, str(e)
     
     def run_seeds(self):

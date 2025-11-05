@@ -191,12 +191,28 @@ def model_builder(request, lesson_id):
             include_children = request.POST.get('include_children') == 'on'
             full_refresh = request.POST.get('full_refresh') == 'on'
             
+            if not selected_models:
+                messages.error(request, 'Please select at least one model to execute')
+                return redirect('model_builder', lesson_id=lesson_id)
+            
             success, results = dbt_manager.execute_models(
                 selected_models, include_children, full_refresh
             )
             
             if success:
-                messages.success(request, f'Executed {len(selected_models)} model(s)')
+                # Show detailed results for each model
+                for result in results:
+                    if result['success']:
+                        messages.success(request, f"✅ Model '{result['model']}' executed successfully")
+                    else:
+                        messages.error(request, f"❌ Model '{result['model']}' failed")
+                    
+                    # Show output (for debugging)
+                    if result.get('output'):
+                        # Truncate if too long
+                        output = result['output'][:500]
+                        messages.info(request, f"Output: {output}")
+                
                 # Update progress
                 progress, _ = LearnerProgress.objects.get_or_create(
                     user=request.user, lesson_id=lesson_id
@@ -209,6 +225,9 @@ def model_builder(request, lesson_id):
                 progress.save()
             else:
                 messages.error(request, f'Execution failed: {results}')
+                # Log the full error
+                import logging
+                logging.error(f"dbt execution failed for user {request.user.username}: {results}")
         
         return redirect('model_builder', lesson_id=lesson_id)
     
@@ -359,3 +378,65 @@ def api_validate_lesson(request):
         return JsonResponse(result)
     except Exception as e:
         return JsonResponse({'success': False, 'message': str(e)})
+
+
+@login_required
+@require_http_methods(["POST"])
+def api_test_dbt(request):
+    """API: Test dbt execution with debug info"""
+    import subprocess
+    lesson_id = request.POST.get('lesson_id', 'hello_dbt')
+    lesson = next((l for l in LESSONS if l['id'] == lesson_id), None)
+    
+    if not lesson:
+        return JsonResponse({'success': False, 'message': 'Lesson not found'})
+    
+    dbt_manager = DBTManager(request.user, lesson)
+    
+    debug_info = {
+        'workspace_initialized': dbt_manager.is_initialized(),
+        'workspace_path': str(dbt_manager.workspace_path),
+        'user_schema': request.user.schema_name,
+    }
+    
+    if dbt_manager.is_initialized():
+        # Check dbt installation
+        try:
+            dbt_version = subprocess.run(['dbt', '--version'], capture_output=True, text=True)
+            debug_info['dbt_version'] = dbt_version.stdout
+        except Exception as e:
+            debug_info['dbt_version'] = f'Error: {str(e)}'
+        
+        # Check workspace files
+        debug_info['workspace_files'] = [str(f) for f in dbt_manager.workspace_path.glob('*')]
+        
+        # Check profiles.yml
+        profiles_path = dbt_manager.workspace_path / 'profiles.yml'
+        if profiles_path.exists():
+            debug_info['profiles_yml_exists'] = True
+            debug_info['profiles_yml_content'] = profiles_path.read_text()
+        else:
+            debug_info['profiles_yml_exists'] = False
+        
+        # Check dbt_project.yml
+        dbt_project_path = dbt_manager.workspace_path / 'dbt_project.yml'
+        if dbt_project_path.exists():
+            debug_info['dbt_project_yml_exists'] = True
+        else:
+            debug_info['dbt_project_yml_exists'] = False
+        
+        # Try running dbt debug
+        try:
+            dbt_debug = subprocess.run(
+                ['dbt', 'debug', '--profiles-dir', str(dbt_manager.workspace_path)],
+                cwd=dbt_manager.workspace_path,
+                capture_output=True,
+                text=True,
+                env={**os.environ, 'MOTHERDUCK_TOKEN': os.environ.get('MOTHERDUCK_TOKEN', '')}
+            )
+            debug_info['dbt_debug_output'] = dbt_debug.stdout + '\n' + dbt_debug.stderr
+            debug_info['dbt_debug_success'] = dbt_debug.returncode == 0
+        except Exception as e:
+            debug_info['dbt_debug_output'] = f'Error: {str(e)}'
+    
+    return JsonResponse(debug_info)

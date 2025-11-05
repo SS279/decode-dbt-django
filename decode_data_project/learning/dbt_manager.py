@@ -100,29 +100,14 @@ decode_dbt:
     
     def get_model_files(self):
         """Get list of model files"""
-        import logging
-        logger = logging.getLogger(__name__)
-        
         if not self.is_initialized():
-            logger.warning("Workspace not initialized when getting model files")
             return []
         
-        try:
-            model_dir = self.workspace_path / self.lesson['model_dir']
-            
-            if not model_dir.exists():
-                logger.error(f"Model directory does not exist: {model_dir}")
-                return []
-            
-            model_files = sorted([f.stem for f in model_dir.glob('*.sql')])
-            logger.info(f"Found {len(model_files)} model files in {model_dir}")
-            return model_files
-            
-        except Exception as e:
-            logger.error(f"Error getting model files: {str(e)}")
-            import traceback
-            logger.error(f"Traceback: {traceback.format_exc()}")
+        model_dir = self.workspace_path / self.lesson['model_dir']
+        if not model_dir.exists():
             return []
+        
+        return sorted([f.stem for f in model_dir.glob('*.sql')])
     
     def load_model(self, model_name):
         """Load model SQL content"""
@@ -239,81 +224,22 @@ decode_dbt:
             return False, str(e)
     
     def run_seeds(self):
-        """Run DBT seeds for specific lesson"""
-        import logging
-        logger = logging.getLogger(__name__)
-        
-        if not self.is_initialized():
-            return False, 'Workspace not initialized'
-        
+        """Run DBT seeds"""
         try:
-            # Check for lesson-specific seeds directory
-            lesson_seed_dir = self.workspace_path / 'seeds' / self.lesson['id']
+            seed_dir = self.workspace_path / 'seeds' / self.lesson['id']
+            if not seed_dir.exists():
+                return True, 'No seeds found for this lesson'
             
-            if not lesson_seed_dir.exists():
-                logger.info(f"No seeds directory found at {lesson_seed_dir}")
-                # Also check if there's a generic seeds directory
-                generic_seed_dir = self.workspace_path / 'seeds'
-                if generic_seed_dir.exists():
-                    logger.info(f"Found generic seeds directory at {generic_seed_dir}")
-                    seed_dir = generic_seed_dir
-                else:
-                    return True, 'No seed data available for this lesson'
-            else:
-                seed_dir = lesson_seed_dir
-                logger.info(f"Using lesson-specific seeds from {lesson_seed_dir}")
-            
-            # List seed files in the directory
-            seed_files = list(seed_dir.glob('**/*.csv'))
-            if not seed_files:
-                logger.info(f"No CSV files found in {seed_dir}")
-                return True, 'No seed files found for this lesson'
-            
-            logger.info(f"Found {len(seed_files)} seed files: {[f.name for f in seed_files]}")
-            
-            # Run dbt seed command
-            # If using lesson-specific seeds, we can use --select to target specific seeds
-            cmd = [
-                'dbt', 'seed',
-                '--profiles-dir', str(self.workspace_path),
-                '--project-dir', str(self.workspace_path)
-            ]
-            
-            # If seeds are in a lesson subdirectory, dbt will still find them
-            # dbt looks in seeds/ directory recursively
-            
-            logger.info(f"Running dbt seed command: {' '.join(cmd)}")
-            logger.info(f"Working directory: {self.workspace_path}")
-            logger.info(f"User schema: {self.user.schema_name}")
+            cmd = ['dbt', 'seed', '--profiles-dir', str(self.workspace_path)]
             
             result = subprocess.run(
                 cmd,
                 cwd=self.workspace_path,
                 capture_output=True,
                 text=True,
-                env={
-                    **os.environ,
-                    'MOTHERDUCK_TOKEN': os.environ.get('MOTHERDUCK_TOKEN', ''),
-                    'DBT_PROFILES_DIR': str(self.workspace_path)
-                }
+                env={**os.environ, 'MOTHERDUCK_TOKEN': os.environ.get('MOTHERDUCK_TOKEN', '')}
             )
             
-            logger.info(f"dbt seed return code: {result.returncode}")
-            logger.info(f"dbt seed stdout:\n{result.stdout}")
-            if result.stderr:
-                logger.error(f"dbt seed stderr:\n{result.stderr}")
-            
-            output = result.stdout + '\n' + result.stderr
-            
-            if result.returncode == 0:
-                # Parse output to see which seeds were loaded
-                seed_names = [f.stem for f in seed_files]
-                return True, f'Successfully loaded {len(seed_files)} seed file(s): {", ".join(seed_names)}\n\n{output}'
-            else:
-                return False, f'Seed loading failed:\n{output}'
-                
+            return result.returncode == 0, result.stdout + result.stderr
         except Exception as e:
-            logger.error(f"Error running seeds: {str(e)}")
-            import traceback
-            logger.error(f"Traceback: {traceback.format_exc()}")
             return False, str(e)

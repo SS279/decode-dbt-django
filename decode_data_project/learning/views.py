@@ -142,123 +142,121 @@ def lesson_detail(request, lesson_id):
 
 @login_required
 def model_builder(request, lesson_id):
-    """Model builder and executor"""
+    lesson = next((l for l in LESSONS if l['id'] == lesson_id), None)
+    if not lesson:
+        messages.error(request, 'Lesson not found')
+        return redirect('dashboard')
+    
+    # Initialize DBT manager
     try:
-        lesson = next((l for l in LESSONS if l['id'] == lesson_id), None)
-        if not lesson:
-            messages.error(request, 'Lesson not found')
-            return redirect('dashboard')
+        dbt_manager = DBTManager(request.user, lesson)
+    except Exception as e:
+        import logging
+        logging.error(f"Error initializing DBT manager: {str(e)}")
+        messages.error(request, f'Error initializing workspace: {str(e)}')
+        return redirect('lesson_detail', lesson_id=lesson_id)
+    
+    if request.method == 'POST':
+        action = request.POST.get('action')
         
-        # Initialize DBT manager
-        try:
-            dbt_manager = DBTManager(request.user, lesson)
-        except Exception as e:
-            import logging
-            logging.error(f"Error initializing DBT manager: {str(e)}")
-            messages.error(request, f'Error initializing workspace: {str(e)}')
-            return redirect('lesson_detail', lesson_id=lesson_id)
-        
-        if request.method == 'POST':
-            action = request.POST.get('action')
-            
-            if action == 'initialize':
+        if action == 'initialize':
             success, message = dbt_manager.initialize_workspace()
-            if success:
-                messages.success(request, message)
-                # Update progress
-                progress, _ = LearnerProgress.objects.get_or_create(
-                    user=request.user, lesson_id=lesson_id
-                )
-                progress.lesson_progress = min(100, progress.lesson_progress + 20)
-                progress.completed_steps = progress.completed_steps or []
-                if 'sandbox_initialized' not in progress.completed_steps:
-                    progress.completed_steps.append('sandbox_initialized')
-                progress.save()
-            else:
-                messages.error(request, message)
-        
-        elif action == 'save_model':
-            model_name = request.POST.get('model_name')
-            model_sql = request.POST.get('model_sql')
-            success, message = dbt_manager.save_model(model_name, model_sql)
-            if success:
-                messages.success(request, message)
-                # Save to database
-                ModelEdit.objects.update_or_create(
-                    user=request.user,
-                    lesson_id=lesson_id,
-                    model_name=model_name,
-                    defaults={'model_sql': model_sql}
-                )
-            else:
-                messages.error(request, message)
-        
-        elif action == 'run_seeds':
-            success, output = dbt_manager.run_seeds()
-            if success:
-                messages.success(request, '✅ Seed data loaded successfully!')
-                # Show truncated output
-                if len(output) > 300:
-                    messages.info(request, f"Output: {output[:300]}... (truncated)")
-                else:
-                    messages.info(request, f"Output: {output}")
-                
-                # Update progress
-                progress, _ = LearnerProgress.objects.get_or_create(
-                    user=request.user, lesson_id=lesson_id
-                )
-                progress.completed_steps = progress.completed_steps or []
-                if 'seeds_loaded' not in progress.completed_steps:
-                    progress.completed_steps.append('seeds_loaded')
-                    progress.lesson_progress = min(100, progress.lesson_progress + 10)
-                progress.save()
-            else:
-                messages.error(request, f'❌ Seed loading failed: {output[:500]}')
-                import logging
-                logging.error(f"dbt seed failed for user {request.user.username}: {output}")
-        
-        elif action == 'execute_models':
-            selected_models = request.POST.getlist('selected_models')
-            include_children = request.POST.get('include_children') == 'on'
-            full_refresh = request.POST.get('full_refresh') == 'on'
-            
-            if not selected_models:
-                messages.error(request, 'Please select at least one model to execute')
-                return redirect('model_builder', lesson_id=lesson_id)
-            
-            success, results = dbt_manager.execute_models(
-                selected_models, include_children, full_refresh
+        if success:
+            messages.success(request, message)
+            # Update progress
+            progress, _ = LearnerProgress.objects.get_or_create(
+                user=request.user, lesson_id=lesson_id
             )
-            
-            if success:
-                # Show detailed results for each model
-                for result in results:
-                    if result['success']:
-                        messages.success(request, f"✅ Model '{result['model']}' executed successfully")
-                    else:
-                        messages.error(request, f"❌ Model '{result['model']}' failed")
-                    
-                    # Show output (for debugging)
-                    if result.get('output'):
-                        # Truncate if too long
-                        output = result['output'][:500]
-                        messages.info(request, f"Output: {output}")
-                
-                # Update progress
-                progress, _ = LearnerProgress.objects.get_or_create(
-                    user=request.user, lesson_id=lesson_id
-                )
-                progress.lesson_progress = min(100, progress.lesson_progress + 30)
-                progress.models_executed = progress.models_executed or []
-                progress.models_executed.extend(
-                    [m for m in selected_models if m not in progress.models_executed]
-                )
-                progress.save()
+            progress.lesson_progress = min(100, progress.lesson_progress + 20)
+            progress.completed_steps = progress.completed_steps or []
+            if 'sandbox_initialized' not in progress.completed_steps:
+                progress.completed_steps.append('sandbox_initialized')
+            progress.save()
+        else:
+            messages.error(request, message)
+    
+    elif action == 'save_model':
+        model_name = request.POST.get('model_name')
+        model_sql = request.POST.get('model_sql')
+        success, message = dbt_manager.save_model(model_name, model_sql)
+        if success:
+            messages.success(request, message)
+            # Save to database
+            ModelEdit.objects.update_or_create(
+                user=request.user,
+                lesson_id=lesson_id,
+                model_name=model_name,
+                defaults={'model_sql': model_sql}
+            )
+        else:
+            messages.error(request, message)
+    
+    elif action == 'run_seeds':
+        success, output = dbt_manager.run_seeds()
+        if success:
+            messages.success(request, '✅ Seed data loaded successfully!')
+            # Show truncated output
+            if len(output) > 300:
+                messages.info(request, f"Output: {output[:300]}... (truncated)")
             else:
-                messages.error(request, f'Execution failed: {results}')
-                # Log the full error
-                import logging
-                logging.error(f"dbt execution failed for user {request.user.username}: {results}")
+                messages.info(request, f"Output: {output}")
+            
+            # Update progress
+            progress, _ = LearnerProgress.objects.get_or_create(
+                user=request.user, lesson_id=lesson_id
+            )
+            progress.completed_steps = progress.completed_steps or []
+            if 'seeds_loaded' not in progress.completed_steps:
+                progress.completed_steps.append('seeds_loaded')
+                progress.lesson_progress = min(100, progress.lesson_progress + 10)
+            progress.save()
+        else:
+            messages.error(request, f'❌ Seed loading failed: {output[:500]}')
+            import logging
+            logging.error(f"dbt seed failed for user {request.user.username}: {output}")
+    
+    elif action == 'execute_models':
+        selected_models = request.POST.getlist('selected_models')
+        include_children = request.POST.get('include_children') == 'on'
+        full_refresh = request.POST.get('full_refresh') == 'on'
+        
+        if not selected_models:
+            messages.error(request, 'Please select at least one model to execute')
+            return redirect('model_builder', lesson_id=lesson_id)
+        
+        success, results = dbt_manager.execute_models(
+            selected_models, include_children, full_refresh
+        )
+        
+        if success:
+            # Show detailed results for each model
+            for result in results:
+                if result['success']:
+                    messages.success(request, f"✅ Model '{result['model']}' executed successfully")
+                else:
+                    messages.error(request, f"❌ Model '{result['model']}' failed")
+                
+                # Show output (for debugging)
+                if result.get('output'):
+                    # Truncate if too long
+                    output = result['output'][:500]
+                    messages.info(request, f"Output: {output}")
+            
+            # Update progress
+            progress, _ = LearnerProgress.objects.get_or_create(
+                user=request.user, lesson_id=lesson_id
+            )
+            progress.lesson_progress = min(100, progress.lesson_progress + 30)
+            progress.models_executed = progress.models_executed or []
+            progress.models_executed.extend(
+                [m for m in selected_models if m not in progress.models_executed]
+            )
+            progress.save()
+        else:
+            messages.error(request, f'Execution failed: {results}')
+            # Log the full error
+            import logging
+            logging.error(f"dbt execution failed for user {request.user.username}: {results}")
         
     # GET request - show models
     try:

@@ -16,7 +16,7 @@ LESSONS = [
         "id": "hello_dbt",
         "title": "🧱 Hello dbt",
         "description": "From Raw to Refined - Introductory hands-on dbt exercise",
-        "model_dir": "models/hello_dbt",
+        "model_dir": "models/hello_dbt",  # Make sure this exists!
         "validation": {
             "sql": "SELECT COUNT(*) AS models_built FROM information_schema.tables WHERE table_schema=current_schema()",
             "expected_min": 2
@@ -26,7 +26,7 @@ LESSONS = [
         "id": "cafe_chain",
         "title": "☕ Café Chain Analytics",
         "description": "Analyze coffee shop sales, customer loyalty, and business performance metrics.",
-        "model_dir": "models/cafe_chain",
+        "model_dir": "models/cafe_chain",  # Make sure this exists!
         "validation": {
             "sql": "SELECT COUNT(*) AS models_built FROM information_schema.tables WHERE table_schema=current_schema()",
             "expected_min": 2
@@ -36,7 +36,7 @@ LESSONS = [
         "id": "energy_smart",
         "title": "⚡ Energy Startup: Smart Meter Data",
         "description": "Model IoT sensor readings and calculate energy consumption KPIs.",
-        "model_dir": "models/energy_smart",
+        "model_dir": "models/energy_smart",  # Make sure this exists!
         "validation": {
             "sql": "SELECT COUNT(*) AS models_built FROM information_schema.tables WHERE table_schema=current_schema()",
             "expected_min": 2
@@ -143,18 +143,25 @@ def lesson_detail(request, lesson_id):
 @login_required
 def model_builder(request, lesson_id):
     """Model builder and executor"""
-    lesson = next((l for l in LESSONS if l['id'] == lesson_id), None)
-    if not lesson:
-        messages.error(request, 'Lesson not found')
-        return redirect('dashboard')
-    
-    # Initialize DBT manager
-    dbt_manager = DBTManager(request.user, lesson)
-    
-    if request.method == 'POST':
-        action = request.POST.get('action')
+    try:
+        lesson = next((l for l in LESSONS if l['id'] == lesson_id), None)
+        if not lesson:
+            messages.error(request, 'Lesson not found')
+            return redirect('dashboard')
         
-        if action == 'initialize':
+        # Initialize DBT manager
+        try:
+            dbt_manager = DBTManager(request.user, lesson)
+        except Exception as e:
+            import logging
+            logging.error(f"Error initializing DBT manager: {str(e)}")
+            messages.error(request, f'Error initializing workspace: {str(e)}')
+            return redirect('lesson_detail', lesson_id=lesson_id)
+        
+        if request.method == 'POST':
+            action = request.POST.get('action')
+            
+            if action == 'initialize':
             success, message = dbt_manager.initialize_workspace()
             if success:
                 messages.success(request, message)
@@ -253,14 +260,24 @@ def model_builder(request, lesson_id):
                 import logging
                 logging.error(f"dbt execution failed for user {request.user.username}: {results}")
         
-        return redirect('model_builder', lesson_id=lesson_id)
-    
     # GET request - show models
-    models = dbt_manager.get_model_files()
-    saved_edits = {
-        me.model_name: me.model_sql 
-        for me in ModelEdit.objects.filter(user=request.user, lesson_id=lesson_id)
-    }
+    try:
+        models = dbt_manager.get_model_files()
+    except Exception as e:
+        import logging
+        logging.error(f"Error getting model files: {str(e)}")
+        messages.error(request, f'Error loading models: {str(e)}')
+        models = []
+    
+    try:
+        saved_edits = {
+            me.model_name: me.model_sql 
+            for me in ModelEdit.objects.filter(user=request.user, lesson_id=lesson_id)
+        }
+    except Exception as e:
+        import logging
+        logging.error(f"Error loading saved edits: {str(e)}")
+        saved_edits = {}
     
     context = {
         'lesson': lesson,
@@ -409,58 +426,95 @@ def api_validate_lesson(request):
 def api_test_dbt(request):
     """API: Test dbt execution with debug info"""
     import subprocess
-    lesson_id = request.POST.get('lesson_id', 'hello_dbt')
-    lesson = next((l for l in LESSONS if l['id'] == lesson_id), None)
+    import traceback
     
-    if not lesson:
-        return JsonResponse({'success': False, 'message': 'Lesson not found'})
-    
-    dbt_manager = DBTManager(request.user, lesson)
-    
-    debug_info = {
-        'workspace_initialized': dbt_manager.is_initialized(),
-        'workspace_path': str(dbt_manager.workspace_path),
-        'user_schema': request.user.schema_name,
-    }
-    
-    if dbt_manager.is_initialized():
-        # Check dbt installation
-        try:
-            dbt_version = subprocess.run(['dbt', '--version'], capture_output=True, text=True)
-            debug_info['dbt_version'] = dbt_version.stdout
-        except Exception as e:
-            debug_info['dbt_version'] = f'Error: {str(e)}'
+    try:
+        lesson_id = request.POST.get('lesson_id', 'hello_dbt')
+        lesson = next((l for l in LESSONS if l['id'] == lesson_id), None)
         
-        # Check workspace files
-        debug_info['workspace_files'] = [str(f) for f in dbt_manager.workspace_path.glob('*')]
+        if not lesson:
+            return JsonResponse({'success': False, 'message': 'Lesson not found'})
         
-        # Check profiles.yml
-        profiles_path = dbt_manager.workspace_path / 'profiles.yml'
-        if profiles_path.exists():
-            debug_info['profiles_yml_exists'] = True
-            debug_info['profiles_yml_content'] = profiles_path.read_text()
-        else:
-            debug_info['profiles_yml_exists'] = False
+        dbt_manager = DBTManager(request.user, lesson)
         
-        # Check dbt_project.yml
-        dbt_project_path = dbt_manager.workspace_path / 'dbt_project.yml'
-        if dbt_project_path.exists():
-            debug_info['dbt_project_yml_exists'] = True
-        else:
-            debug_info['dbt_project_yml_exists'] = False
+        debug_info = {
+            'workspace_initialized': dbt_manager.is_initialized(),
+            'workspace_path': str(dbt_manager.workspace_path),
+            'user_schema': request.user.schema_name,
+            'lesson_id': lesson_id,
+            'model_dir': lesson.get('model_dir', 'N/A'),
+        }
         
-        # Try running dbt debug
-        try:
-            dbt_debug = subprocess.run(
-                ['dbt', 'debug', '--profiles-dir', str(dbt_manager.workspace_path)],
-                cwd=dbt_manager.workspace_path,
-                capture_output=True,
-                text=True,
-                env={**os.environ, 'MOTHERDUCK_TOKEN': os.environ.get('MOTHERDUCK_TOKEN', '')}
-            )
-            debug_info['dbt_debug_output'] = dbt_debug.stdout + '\n' + dbt_debug.stderr
-            debug_info['dbt_debug_success'] = dbt_debug.returncode == 0
-        except Exception as e:
-            debug_info['dbt_debug_output'] = f'Error: {str(e)}'
-    
-    return JsonResponse(debug_info)
+        if dbt_manager.is_initialized():
+            # Check dbt installation
+            try:
+                dbt_version = subprocess.run(['dbt', '--version'], capture_output=True, text=True, timeout=10)
+                debug_info['dbt_version'] = dbt_version.stdout
+                debug_info['dbt_installed'] = True
+            except Exception as e:
+                debug_info['dbt_version'] = f'Error: {str(e)}'
+                debug_info['dbt_installed'] = False
+            
+            # Check workspace files
+            try:
+                workspace_files = list(dbt_manager.workspace_path.glob('*'))
+                debug_info['workspace_files'] = [str(f.name) for f in workspace_files]
+            except Exception as e:
+                debug_info['workspace_files'] = f'Error: {str(e)}'
+            
+            # Check model directory
+            try:
+                model_dir = dbt_manager.workspace_path / lesson['model_dir']
+                debug_info['model_dir_exists'] = model_dir.exists()
+                if model_dir.exists():
+                    model_files = list(model_dir.glob('*.sql'))
+                    debug_info['model_files'] = [f.name for f in model_files]
+                else:
+                    debug_info['model_files'] = 'Model directory does not exist'
+            except Exception as e:
+                debug_info['model_files'] = f'Error: {str(e)}'
+            
+            # Check profiles.yml
+            try:
+                profiles_path = dbt_manager.workspace_path / 'profiles.yml'
+                if profiles_path.exists():
+                    debug_info['profiles_yml_exists'] = True
+                    debug_info['profiles_yml_content'] = profiles_path.read_text()
+                else:
+                    debug_info['profiles_yml_exists'] = False
+            except Exception as e:
+                debug_info['profiles_yml_error'] = str(e)
+            
+            # Check dbt_project.yml
+            try:
+                dbt_project_path = dbt_manager.workspace_path / 'dbt_project.yml'
+                debug_info['dbt_project_yml_exists'] = dbt_project_path.exists()
+            except Exception as e:
+                debug_info['dbt_project_yml_error'] = str(e)
+            
+            # Try running dbt debug
+            try:
+                dbt_debug = subprocess.run(
+                    ['dbt', 'debug', '--profiles-dir', str(dbt_manager.workspace_path)],
+                    cwd=dbt_manager.workspace_path,
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                    env={**os.environ, 'MOTHERDUCK_TOKEN': os.environ.get('MOTHERDUCK_TOKEN', '')}
+                )
+                debug_info['dbt_debug_output'] = dbt_debug.stdout + '\n' + dbt_debug.stderr
+                debug_info['dbt_debug_success'] = dbt_debug.returncode == 0
+            except Exception as e:
+                debug_info['dbt_debug_output'] = f'Error: {str(e)}'
+        
+        return JsonResponse(debug_info)
+        
+    except Exception as e:
+        import logging
+        logging.error(f"Error in api_test_dbt: {str(e)}")
+        logging.error(f"Traceback: {traceback.format_exc()}")
+        return JsonResponse({
+            'success': False,
+            'error': str(e),
+            'traceback': traceback.format_exc()
+        })

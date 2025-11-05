@@ -100,14 +100,29 @@ decode_dbt:
     
     def get_model_files(self):
         """Get list of model files"""
+        import logging
+        logger = logging.getLogger(__name__)
+        
         if not self.is_initialized():
+            logger.warning("Workspace not initialized when getting model files")
             return []
         
-        model_dir = self.workspace_path / self.lesson['model_dir']
-        if not model_dir.exists():
+        try:
+            model_dir = self.workspace_path / self.lesson['model_dir']
+            
+            if not model_dir.exists():
+                logger.error(f"Model directory does not exist: {model_dir}")
+                return []
+            
+            model_files = sorted([f.stem for f in model_dir.glob('*.sql')])
+            logger.info(f"Found {len(model_files)} model files in {model_dir}")
+            return model_files
+            
+        except Exception as e:
+            logger.error(f"Error getting model files: {str(e)}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
             return []
-        
-        return sorted([f.stem for f in model_dir.glob('*.sql')])
     
     def load_model(self, model_name):
         """Load model SQL content"""

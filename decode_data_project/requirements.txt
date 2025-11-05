@@ -13,7 +13,8 @@ duckdb>=1.0.0
 motherduck
 
 # === Data Processing ===
-pandas==2.1.0
+pandas==2.2.2
+numpy==1.26.4
 
 # === Optional: Groq SDK ===
 groq

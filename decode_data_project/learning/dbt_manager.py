@@ -78,13 +78,12 @@ class DBTManager:
                 # Don't fail initialization if schema creation fails
             
             # Create profiles.yml
-            profiles_content = f"""
-decode_dbt:
+            profiles_content = f"""decode_dbt:
   target: dev
   outputs:
     dev:
       type: duckdb
-      path: "md:{os.environ.get('MOTHERDUCK_SHARE', 'decode_dbt')}"
+      path: md:{os.environ.get('MOTHERDUCK_SHARE', 'decode_dbt')}
       schema: {self.user.schema_name}
       threads: 4
       motherduck_token: {os.environ.get('MOTHERDUCK_TOKEN')}
@@ -92,6 +91,7 @@ decode_dbt:
             profiles_path = self.workspace_path / 'profiles.yml'
             profiles_path.write_text(profiles_content)
             logger.info(f"Created profiles.yml at: {profiles_path}")
+            logger.info(f"Schema configured as: {self.user.schema_name}")
             
             return True, 'Workspace initialized successfully'
         except Exception as e:
@@ -133,6 +133,58 @@ decode_dbt:
         except Exception as e:
             return False, f'Error saving model: {str(e)}'
     
+    def _verify_table_created(self, model_name):
+        """Verify table actually exists in MotherDuck after dbt run"""
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        try:
+            from learning.storage import MotherDuckStorage
+            storage = MotherDuckStorage()
+            
+            conn = storage._get_connection()
+            conn.execute(f"USE {storage.share}")
+            conn.execute(f"SET SCHEMA '{self.user.schema_name}'")
+            
+            # Check if table/view exists
+            result = conn.execute(f"""
+                SELECT table_name, table_type
+                FROM information_schema.tables
+                WHERE table_schema = '{self.user.schema_name}'
+                AND table_name = '{model_name}'
+            """).fetchdf()
+            
+            if len(result) == 0:
+                logger.error(f"❌ VERIFICATION FAILED: '{model_name}' NOT FOUND in schema '{self.user.schema_name}'")
+                
+                # Show what IS in the schema for debugging
+                all_tables = conn.execute(f"""
+                    SELECT table_name, table_type
+                    FROM information_schema.tables
+                    WHERE table_schema = '{self.user.schema_name}'
+                """).fetchdf()
+                
+                if len(all_tables) > 0:
+                    logger.error(f"Tables/views that DO exist in schema: {all_tables['table_name'].tolist()}")
+                else:
+                    logger.error(f"Schema '{self.user.schema_name}' exists but contains NO tables or views")
+                
+                conn.close()
+                return False, f"Table '{model_name}' not found in schema after dbt run"
+            else:
+                table_type = result.iloc[0]['table_type']
+                logger.info(f"✅ VERIFICATION SUCCESS: '{model_name}' exists as {table_type} in schema '{self.user.schema_name}'")
+                
+                if table_type == 'VIEW':
+                    logger.warning(f"⚠️  Note: '{model_name}' was created as a VIEW, not a TABLE")
+                
+                conn.close()
+                return True, f"Verified: {model_name} created as {table_type}"
+            
+        except Exception as e:
+            logger.error(f"❌ Verification error: {e}")
+            return False, f"Verification failed: {str(e)}"
+    
     def execute_models(self, model_names, include_children=False, full_refresh=False):
         """Execute DBT models"""
         import logging
@@ -144,6 +196,8 @@ decode_dbt:
         try:
             results = []
             for model_name in model_names:
+                # Try different selector formats
+                # Option 1: With lesson prefix (original)
                 selector = f"{self.lesson['id']}.{model_name}"
                 if include_children:
                     selector += "+"
@@ -155,6 +209,7 @@ decode_dbt:
                 logger.info(f"Executing dbt command: {' '.join(cmd)}")
                 logger.info(f"Working directory: {self.workspace_path}")
                 logger.info(f"User schema: {self.user.schema_name}")
+                logger.info(f"Model selector: {selector}")
                 
                 result = subprocess.run(
                     cmd,
@@ -164,14 +219,39 @@ decode_dbt:
                     env={**os.environ, 'MOTHERDUCK_TOKEN': os.environ.get('MOTHERDUCK_TOKEN', '')}
                 )
                 
-                logger.info(f"dbt stdout: {result.stdout}")
-                logger.error(f"dbt stderr: {result.stderr}")
+                output = result.stdout + result.stderr
+                
                 logger.info(f"dbt return code: {result.returncode}")
+                logger.info(f"dbt stdout: {result.stdout}")
+                if result.stderr:
+                    logger.error(f"dbt stderr: {result.stderr}")
+                
+                # Parse output for detailed status
+                if "OK created table" in output:
+                    logger.info(f"✅ dbt reports: Table '{model_name}' created")
+                elif "OK created view" in output:
+                    logger.warning(f"⚠️  dbt reports: View '{model_name}' created (not table!)")
+                elif "ERROR" in output or "FAIL" in output:
+                    logger.error(f"❌ dbt reports: Model '{model_name}' failed")
+                
+                # NEW: Verify table actually exists in MotherDuck
+                verification_success = False
+                verification_message = ""
+                
+                if result.returncode == 0:
+                    verification_success, verification_message = self._verify_table_created(model_name)
+                    
+                    if not verification_success:
+                        # dbt said success but table doesn't exist!
+                        logger.error(f"⚠️  CRITICAL: dbt reported success but verification failed!")
+                        logger.error(f"   This means dbt thinks it created '{model_name}' but it's not in MotherDuck")
                 
                 results.append({
                     'model': model_name,
                     'success': result.returncode == 0,
-                    'output': result.stdout + result.stderr
+                    'verified': verification_success,
+                    'verification_message': verification_message,
+                    'output': output
                 })
             
             return True, results
@@ -181,12 +261,18 @@ decode_dbt:
     
     def run_seeds(self):
         """Run DBT seeds"""
+        import logging
+        logger = logging.getLogger(__name__)
+        
         try:
             seed_dir = self.workspace_path / 'seeds' / self.lesson['id']
             if not seed_dir.exists():
+                logger.info(f"No seeds directory found at: {seed_dir}")
                 return True, 'No seeds found for this lesson'
             
             cmd = ['dbt', 'seed', '--profiles-dir', str(self.workspace_path)]
+            
+            logger.info(f"Running dbt seed: {' '.join(cmd)}")
             
             result = subprocess.run(
                 cmd,
@@ -196,6 +282,21 @@ decode_dbt:
                 env={**os.environ, 'MOTHERDUCK_TOKEN': os.environ.get('MOTHERDUCK_TOKEN', '')}
             )
             
+            logger.info(f"dbt seed stdout: {result.stdout}")
+            if result.stderr:
+                logger.error(f"dbt seed stderr: {result.stderr}")
+            
+            # Verify seeds were loaded
+            if result.returncode == 0:
+                from learning.storage import MotherDuckStorage
+                storage = MotherDuckStorage()
+                try:
+                    tables = storage.list_tables(self.user.schema_name)
+                    logger.info(f"Tables in schema after seeding: {tables}")
+                except Exception as e:
+                    logger.warning(f"Could not list tables after seeding: {e}")
+            
             return result.returncode == 0, result.stdout + result.stderr
         except Exception as e:
+            logger.error(f"Error running seeds: {str(e)}")
             return False, str(e)

@@ -10,13 +10,7 @@ SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'your-secret-key-change-in-prod
 
 DEBUG = os.environ.get('DEBUG', 'True') == 'False'
 
-ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', 'localhost').split(',')
-
-ALLOWED_HOSTS = [
-    'decode-dbt-django-production.up.railway.app',
-    'localhost',
-    '127.0.0.1',
-]
+ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',')
 
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -105,11 +99,33 @@ STATICFILES_DIRS = []
 if (BASE_DIR / 'learning' / 'static').exists():
     STATICFILES_DIRS = [BASE_DIR / 'learning' / 'static']
 
-# Use Whitenoise for static files, but disable compression during build
-if os.environ.get('RAILWAY_ENVIRONMENT'):
-    STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
-else:
-    STATICFILES_STORAGE = 'django.contrib.staticfiles.storage.StaticFilesStorage'
+# Use Whitenoise for static files
+STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
+
+# CSRF Settings for Production
+CSRF_TRUSTED_ORIGINS = []
+if not DEBUG:
+    # Get the Railway domain from environment or use wildcard
+    railway_domain = os.environ.get('RAILWAY_PUBLIC_DOMAIN', '')
+    if railway_domain:
+        CSRF_TRUSTED_ORIGINS = [
+            f'https://{railway_domain}',
+            f'https://*.railway.app',
+            f'https://*.up.railway.app',
+        ]
+    else:
+        # Fallback to Railway domains
+        CSRF_TRUSTED_ORIGINS = [
+            'https://*.railway.app',
+            'https://*.up.railway.app',
+        ]
+
+# Session and CSRF Cookie Settings
+SESSION_COOKIE_SECURE = not DEBUG
+CSRF_COOKIE_SECURE = not DEBUG
+CSRF_COOKIE_HTTPONLY = False  # Allow JavaScript to read CSRF token if needed
+SESSION_COOKIE_SAMESITE = 'Lax'
+CSRF_COOKIE_SAMESITE = 'Lax'
 
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'

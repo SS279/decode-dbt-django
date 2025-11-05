@@ -190,31 +190,7 @@ def model_builder(request, lesson_id):
             )
         else:
             messages.error(request, message)
-    
-    elif action == 'run_seeds':
-        success, output = dbt_manager.run_seeds()
-        if success:
-            messages.success(request, '✅ Seed data loaded successfully!')
-            # Show truncated output
-            if len(output) > 300:
-                messages.info(request, f"Output: {output[:300]}... (truncated)")
-            else:
-                messages.info(request, f"Output: {output}")
             
-            # Update progress
-            progress, _ = LearnerProgress.objects.get_or_create(
-                user=request.user, lesson_id=lesson_id
-            )
-            progress.completed_steps = progress.completed_steps or []
-            if 'seeds_loaded' not in progress.completed_steps:
-                progress.completed_steps.append('seeds_loaded')
-                progress.lesson_progress = min(100, progress.lesson_progress + 10)
-            progress.save()
-        else:
-            messages.error(request, f'❌ Seed loading failed: {output[:500]}')
-            import logging
-            logging.error(f"dbt seed failed for user {request.user.username}: {output}")
-    
     elif action == 'execute_models':
         selected_models = request.POST.getlist('selected_models')
         include_children = request.POST.get('include_children') == 'on'
